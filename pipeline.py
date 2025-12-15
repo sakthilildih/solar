@@ -1,15 +1,3 @@
-"""
-Rooftop Solar PV Detection Pipeline
-EcoInnovators Ideathon 2026 Challenge
-
-This pipeline:
-1. Reads site coordinates from Excel file
-2. Fetches satellite imagery from ArcGIS World Imagery API
-3. Runs YOLO-OBB model inference to detect solar panels
-4. Checks buffer zones (1200 & 2400 sq.ft) for panel presence
-5. Quantifies PV panel area with overlap calculation
-6. Generates JSON output and audit artifacts
-"""
 
 import os
 import math
@@ -27,17 +15,17 @@ from io import BytesIO
 import cv2
 import time
 
-# =========================
-# CONFIGURATION
-# =========================
-
-# ArcGIS World Imagery service (public, no authentication required)
 ARCGIS_SERVICE_URL = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export"
 
-# Multi-model ensemble configuration
-MODEL_PATHS = ["best.pt", "best (2).pt"]  # List of models to use in ensemble
-USE_ENSEMBLE = True  # Set to False to use only first model
-ENSEMBLE_STRATEGY = "max_confidence"  # Options: "max_confidence", "average", "voting"
+MAPBOX_TOKEN = "pk.eyJ1Ijoic2FrdGhpbGlsZGloIiwiYSI6ImNtaXBzMDU2eTBkOWQzZ3I0bW4wZ2IzYmwifQ.IPPxwMUhC_fSX9O3n7vo8g"
+MAPBOX_ZOOM = 18
+
+USE_DUAL_SOURCE = True
+DUAL_SOURCE_STRATEGY = "OR"
+
+MODEL_PATHS = ["best.pt", "best (2).pt"]
+USE_ENSEMBLE = True
+ENSEMBLE_STRATEGY = "max_confidence"
 
 INPUT_XLSX = "input/sites.xlsx"
 OUTPUT_DIR = "output"
@@ -45,38 +33,27 @@ IMAGE_DIR = os.path.join(OUTPUT_DIR, "images")
 ARTIFACTS_DIR = os.path.join(OUTPUT_DIR, "artifacts")
 JSON_DIR = os.path.join(OUTPUT_DIR, "json")
 
-# Image parameters
 IMG_WIDTH = 512
 IMG_HEIGHT = 512
-KM_RADIUS = 0.04  # Coverage radius in kilometers (controls zoom level)
+KM_RADIUS = 0.04
 
-# Buffer zone parameters (in square feet)
 BUFFER_ZONE_1_SQFT = 1200
 BUFFER_ZONE_2_SQFT = 2400
 
-# GSD (Ground Sample Distance) in cm per pixel
-# This value is calibrated for ArcGIS World Imagery at ~0.05km radius
-# May need adjustment based on actual imagery resolution
 GSD_CM_PER_PIXEL = 10.88
 GSD_M_PER_PIXEL = GSD_CM_PER_PIXEL / 100
 
-# Conversion factors
 SQFT_TO_SQM_CONVERSION = 0.092903
 
-# Watt Peak assumption (Wp per square meter)
 WP_PER_SQM_ASSUMPTION = 175
 
-# Model confidence threshold
+CALCULATE_CAPACITY = True
+
 CONFIDENCE_THRESHOLD = 0.3
 
-# Create output directories
 os.makedirs(IMAGE_DIR, exist_ok=True)
 os.makedirs(ARTIFACTS_DIR, exist_ok=True)
 os.makedirs(JSON_DIR, exist_ok=True)
-
-# =========================
-# HELPER FUNCTIONS
-# =========================
 
 def calculate_buffer_radii():
     """Calculate buffer zone radii in pixels from square feet areas."""
@@ -159,14 +136,13 @@ def ensemble_predictions(predictions, strategy="max_confidence"):
     Returns:
         Combined prediction result with ensemble metadata
     """
-    # Filter successful predictions
+
     successful_preds = [p for p in predictions if p['success']]
     
     if not successful_preds:
         return None, []
     
-    # For max_confidence strategy, simply return the result with most detections
-    # or highest confidence
+
     if strategy == "max_confidence":
         best_pred = None
         best_score = -1
@@ -184,14 +160,13 @@ def ensemble_predictions(predictions, strategy="max_confidence"):
         if best_pred:
             return best_pred['result'], contributing_models
         else:
-            # No detections from any model, return first result
+        
             return successful_preds[0]['result'], []
     
-    # For other strategies, return first result (can be extended later)
     return successful_preds[0]['result'], [successful_preds[0]['model_name']]
 
 
-def download_image(lat, lon, save_path):
+def download_image_arcgis(lat, lon, save_path):
     """
     Download satellite image from ArcGIS World Imagery API for given coordinates.
     Uses direct REST API calls - no authentication required.
@@ -204,11 +179,11 @@ def download_image(lat, lon, save_path):
     Returns:
         Tuple of (success: bool, message: str)
     """
-    # Validate minimum radius to avoid server errors
+
     MIN_RADIUS = 0.15  # km
     km_radius = max(KM_RADIUS, MIN_RADIUS)
     
-    # Build extent around the point
+
     delta = km_radius / 110.0  # ~1° ≈ 110 km
     
     params = {
@@ -235,6 +210,66 @@ def download_image(lat, lon, save_path):
         return False, str(e)
 
 
+def download_image_mapbox(lat, lon, save_path):
+    """
+    Download satellite image from Mapbox API for given coordinates.
+    
+    Args:
+        lat: Latitude of the center point
+        lon: Longitude of the center point
+        save_path: Path where the image will be saved
+    
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    img_size = f"{IMG_WIDTH}x{IMG_HEIGHT}"
+    url = f"https://api.mapbox.com/styles/v1/mapbox/satellite-v9/static/{lon},{lat},{MAPBOX_ZOOM}/{img_size}?access_token={MAPBOX_TOKEN}"
+    
+    try:
+        response = requests.get(url, timeout=15)
+        response.raise_for_status()
+        
+        with open(save_path, "wb") as f:
+            f.write(response.content)
+        
+        return True, "Success"
+    except requests.exceptions.RequestException as e:
+        return False, f"HTTP Error: {str(e)}"
+    except Exception as e:
+        return False, str(e)
+
+
+def download_images_dual_source(lat, lon, arcgis_path, mapbox_path):
+    """
+    Download satellite images from both ArcGIS and Mapbox simultaneously.
+    
+    Args:
+        lat: Latitude coordinate
+        lon: Longitude coordinate
+        arcgis_path: Save path for ArcGIS image
+        mapbox_path: Save path for Mapbox image
+    
+    Returns:
+        Dictionary with download results for both sources
+    """
+    results = {
+        "arcgis": {"success": False, "message": ""},
+        "mapbox": {"success": False, "message": ""}
+    }
+    
+    # Download from ArcGIS
+    arcgis_success, arcgis_msg = download_image_arcgis(lat, lon, arcgis_path)
+    results["arcgis"]["success"] = arcgis_success
+    results["arcgis"]["message"] = arcgis_msg
+    
+    # Download from Mapbox
+    mapbox_success, mapbox_msg = download_image_mapbox(lat, lon, mapbox_path)
+    results["mapbox"]["success"] = mapbox_success
+    results["mapbox"]["message"] = mapbox_msg
+    
+    return results
+
+
 def calculate_overlap_area_sqm(panel_obb, buffer_center_x, buffer_center_y, buffer_radius_pixels, gsd_m_per_pixel):
     """
     Calculate the overlap area between a panel OBB and circular buffer zone.
@@ -251,7 +286,7 @@ def calculate_overlap_area_sqm(panel_obb, buffer_center_x, buffer_center_y, buff
     """
     cx, cy, w, h, r = panel_obb
     
-    # Create unrotated rectangle centered at origin
+    
     half_w = w / 2
     half_h = h / 2
     unrotated_polygon = Polygon([
@@ -261,21 +296,21 @@ def calculate_overlap_area_sqm(panel_obb, buffer_center_x, buffer_center_y, buff
         (-half_w, half_h)
     ])
     
-    # Rotate the polygon
+ 
     rotated_polygon = rotate(unrotated_polygon, r, origin='center', use_radians=False)
     
-    # Translate to actual center coordinates
+   
     panel_polygon = translate(rotated_polygon, xoff=cx, yoff=cy)
     
-    # Create buffer zone circle
+   
     buffer_center_point = Point(buffer_center_x, buffer_center_y)
     buffer_circle = buffer_center_point.buffer(buffer_radius_pixels, resolution=16)
     
-    # Calculate intersection
+
     intersection = panel_polygon.intersection(buffer_circle)
     intersection_area_pixels = intersection.area
     
-    # Convert to square meters
+
     overlap_area_sqm = intersection_area_pixels * (gsd_m_per_pixel ** 2)
     
     return overlap_area_sqm
@@ -288,27 +323,23 @@ def determine_qc_status(has_solar, confidence, image_path):
     Returns:
         "VERIFIABLE" or "NOT_VERIFIABLE"
     """
-    # Check if image exists and is valid
     if not os.path.exists(image_path):
         return "NOT_VERIFIABLE"
     
     try:
         img = Image.open(image_path)
-        # Basic image quality checks
+  
         if img.size[0] < 256 or img.size[1] < 256:
             return "NOT_VERIFIABLE"
     except:
         return "NOT_VERIFIABLE"
     
-    # If solar detected with reasonable confidence, it's verifiable
     if has_solar and confidence >= 0.2:
         return "VERIFIABLE"
     
-    # If no solar detected, still verifiable (clear negative)
     if not has_solar:
         return "VERIFIABLE"
-    
-    # Low confidence detections are not verifiable
+   
     if has_solar and confidence < 0.2:
         return "NOT_VERIFIABLE"
     
@@ -323,21 +354,18 @@ def create_audit_overlay(image_path, result, buffer_center_x, buffer_center_y,
     Create audit-friendly overlay image with detections and buffer zones.
     """
     try:
-        # Load image
+        
         img = cv2.imread(image_path)
         if img is None:
             return False
         
         overlay = img.copy()
         
-        # Draw buffer zones
-        # 1200 sq.ft buffer (inner circle) - Blue
+
         cv2.circle(overlay, 
                   (int(buffer_center_x), int(buffer_center_y)), 
                   int(radius_1_pixels), 
                   (255, 0, 0), 2)
-        
-        # 2400 sq.ft buffer (outer circle) - Green
         cv2.circle(overlay, 
                   (int(buffer_center_x), int(buffer_center_y)), 
                   int(radius_2_pixels), 
@@ -491,6 +519,7 @@ def detect_solar_panels(image_path, models, radius_1_pixels, radius_2_pixels):
     highest_overlap_area_sqm = 0.0
     best_panel_confidence = 0.0
     best_bbox_or_mask = []
+    capacity_kw = 0.0
     found_in_1200_buffer = False
     
     # Check 1200 sq.ft buffer zone first
@@ -549,11 +578,16 @@ def detect_solar_panels(image_path, models, radius_1_pixels, radius_2_pixels):
     if not has_solar:
         relevant_buffer_radius_sqft = BUFFER_ZONE_2_SQFT
     
+    # Calculate capacity in kW if solar panels detected
+    if has_solar and CALCULATE_CAPACITY:
+        capacity_kw = (total_panel_area_sqm * WP_PER_SQM_ASSUMPTION) / 1000
+    
     return {
         "result": result,
         "has_solar": has_solar,
         "confidence": best_panel_confidence,
         "pv_area_sqm_est": total_panel_area_sqm,
+        "capacity_kw": capacity_kw,
         "buffer_radius_sqft": relevant_buffer_radius_sqft,
         "bbox_or_mask": best_bbox_or_mask,
         "buffer_center_x": image_center_x,
@@ -568,9 +602,12 @@ def detect_solar_panels(image_path, models, radius_1_pixels, radius_2_pixels):
 
 
 
+
+
+
 def process_single_site(sample_id, lat, lon, models, radius_1_pixels, radius_2_pixels):
     """
-    Process a single site: download image, detect panels, generate outputs.
+    Process a single site: download images from dual sources, detect panels, merge results.
     
     Returns:
         JSON record for the site
@@ -579,55 +616,167 @@ def process_single_site(sample_id, lat, lon, models, radius_1_pixels, radius_2_p
     print(f"Processing Sample ID: {sample_id}")
     print(f"Coordinates: ({lat}, {lon})")
     
-    # Download image
-    image_filename = f"{sample_id}_satellite.png"
-    image_path = os.path.join(IMAGE_DIR, image_filename)
-    
-    print(f"⬇️  Downloading satellite image...")
-    success, message = download_image(lat, lon, image_path)
-    
-    if not success:
-        print(f"   ❌ Failed to download image: {message}")
-        # Return NOT_VERIFIABLE result
-        return {
-            "sample_id": int(sample_id),
-            "lat": float(lat),
-            "lon": float(lon),
-            "has_solar": False,
-            "confidence": 0.0,
-            "pv_area_sqm_est": 0.0,
-            "buffer_radius_sqft": BUFFER_ZONE_2_SQFT,
-            "qc_status": "NOT_VERIFIABLE",
-            "bbox_or_mask": "",
-            "image_metadata": {
-                "source": "ArcGIS World Imagery",
-                "capture_date": datetime.now().strftime("%Y-%m-%d"),
-                "coverage_km": KM_RADIUS * 2,
-                "error": message
+    if USE_DUAL_SOURCE:
+        # Dual-source mode: Download from both ArcGIS and Mapbox
+        print(f"⬇️  Downloading satellite images from dual sources...")
+        
+        arcgis_filename = f"{sample_id}_arcgis.png"
+        mapbox_filename = f"{sample_id}_mapbox.png"
+        arcgis_path = os.path.join(IMAGE_DIR, arcgis_filename)
+        mapbox_path = os.path.join(IMAGE_DIR, mapbox_filename)
+        
+        download_results = download_images_dual_source(lat, lon, arcgis_path, mapbox_path)
+        
+        arcgis_success = download_results["arcgis"]["success"]
+        mapbox_success = download_results["mapbox"]["success"]
+        
+        print(f"   {'✅' if arcgis_success else '❌'} ArcGIS: {download_results['arcgis']['message']}")
+        print(f"   {'✅' if mapbox_success else '❌'} Mapbox: {download_results['mapbox']['message']}")
+        
+        # Track which sources succeeded
+        successful_sources = []
+        detection_results = []
+        
+        # Run detection on ArcGIS image if available
+        if arcgis_success:
+            print(f"🔍 Running detection on ArcGIS image...")
+            arcgis_detection = detect_solar_panels(arcgis_path, models, radius_1_pixels, radius_2_pixels)
+            arcgis_detection["source"] = "ArcGIS World Imagery"
+            detection_results.append(arcgis_detection)
+            successful_sources.append("ArcGIS")
+            print(f"   {'✅' if arcgis_detection['has_solar'] else '❌'} ArcGIS Detection: {arcgis_detection['has_solar']}")
+        
+        # Run detection on Mapbox image if available
+        if mapbox_success:
+            print(f"🔍 Running detection on Mapbox image...")
+            mapbox_detection = detect_solar_panels(mapbox_path, models, radius_1_pixels, radius_2_pixels)
+            mapbox_detection["source"] = "Mapbox Satellite"
+            detection_results.append(mapbox_detection)
+            successful_sources.append("Mapbox")
+            print(f"   {'✅' if mapbox_detection['has_solar'] else '❌'} Mapbox Detection: {mapbox_detection['has_solar']}")
+        
+        # Merge results based on strategy
+        if not detection_results:
+            # Both downloads failed
+            print(f"   ❌ Both image sources failed")
+            return {
+                "sample_id": int(sample_id),
+                "lat": float(lat),
+                "lon": float(lon),
+                "has_solar": False,
+                "confidence": 0.0,
+                "pv_area_sqm_est": 0.0,
+                "capacity_kw": 0.0,
+                "buffer_radius_sqft": BUFFER_ZONE_2_SQFT,
+                "qc_status": "NOT_VERIFIABLE",
+                "bbox_or_mask": "",
+                "image_metadata": {
+                    "sources_attempted": ["ArcGIS", "Mapbox"],
+                   "sources_succeeded": [],
+                    "capture_date": datetime.now().strftime("%Y-%m-%d"),
+                    "error": "All image sources failed"
+                }
             }
-        }
-    
-    print(f"   ✅ Image downloaded successfully")
-    
-    # Run detection
-    print(f"🔍 Running solar panel detection...")
-    detection_result = detect_solar_panels(image_path, models, radius_1_pixels, radius_2_pixels)
-    
-    has_solar = detection_result["has_solar"]
-    confidence = detection_result["confidence"]
-    pv_area_sqm = detection_result["pv_area_sqm_est"]
-    buffer_radius = detection_result["buffer_radius_sqft"]
-    bbox_or_mask = detection_result["bbox_or_mask"]
-    ensemble_metadata = detection_result.get("ensemble_metadata", {})
-    
-    print(f"   {'✅' if has_solar else '❌'} Solar Panels Detected: {has_solar}")
-    if has_solar:
-        print(f"   📊 Confidence: {confidence:.2f}")
-        print(f"   📏 Panel Area: {pv_area_sqm:.2f} sqm")
-        print(f"   🎯 Buffer Zone: {buffer_radius} sq.ft")
+        
+        # Merge detections based on strategy
+        if DUAL_SOURCE_STRATEGY == "OR":
+            # Positive if EITHER source detects solar
+            has_solar_any = any(d["has_solar"] for d in detection_results)
+            
+            if has_solar_any:
+                # Choose result with highest confidence
+                final_detection = max(detection_results, key=lambda x: x["confidence"])
+                has_solar = True
+            else:
+                # No detection from either source
+                final_detection = detection_results[0]
+                has_solar = False
+        else:  # "AND" strategy
+            # Positive only if BOTH sources detect solar
+            has_solar = all(d["has_solar"] for d in detection_results) if len(detection_results) == 2 else False
+            final_detection = max(detection_results, key=lambda x: x["confidence"]) if has_solar else detection_results[0]
+        
+        # Extract merged results
+        confidence = final_detection["confidence"]
+        pv_area_sqm = final_detection["pv_area_sqm_est"]
+        capacity_kw = final_detection.get("capacity_kw", 0.0)
+        buffer_radius = final_detection["buffer_radius_sqft"]
+        bbox_or_mask = final_detection["bbox_or_mask"]
+        ensemble_metadata = final_detection.get("ensemble_metadata", {})
+        detection_source = final_detection.get("source", "Unknown")
+        
+        # Use the image from the successful detection for overlay
+        if arcgis_success and (not detection_results or final_detection == detection_results[0]):
+            primary_image_path = arcgis_path
+        elif mapbox_success:
+            primary_image_path = mapbox_path
+        else:
+            primary_image_path = arcgis_path
+        
+        print(f"   🔄 Merged Result ({DUAL_SOURCE_STRATEGY} strategy):")
+        print(f"   {'✅' if has_solar else '❌'} Final Detection: {has_solar}")
+        if has_solar:
+            print(f"   📊 Best Source: {detection_source}")
+            print(f"   📊 Confidence: {confidence:.2f}")
+            print(f"   📏 Panel Area: {pv_area_sqm:.2f} sqm")
+            print(f"   ⚡ Estimated Capacity: {capacity_kw:.2f} kW")
+            print(f"   🎯 Buffer Zone: {buffer_radius} sq.ft")
+        
+    else:
+        # Single-source mode (ArcGIS only)
+        print(f"⬇️  Downloading satellite image...")
+        image_filename =  f"{sample_id}_satellite.png"
+        image_path = os.path.join(IMAGE_DIR, image_filename)
+        
+        success, message = download_image_arcgis(lat, lon, image_path)
+        
+        if not success:
+            print(f"   ❌ Failed to download image: {message}")
+            return {
+                "sample_id": int(sample_id),
+                "lat": float(lat),
+                "lon": float(lon),
+                "has_solar": False,
+                "confidence": 0.0,
+                "pv_area_sqm_est": 0.0,
+                "capacity_kw": 0.0,
+                "buffer_radius_sqft": BUFFER_ZONE_2_SQFT,
+                "qc_status": "NOT_VERIFIABLE",
+                "bbox_or_mask": "",
+                "image_metadata": {
+                    "source": "ArcGIS World Imagery",
+                    "capture_date": datetime.now().strftime("%Y-%m-%d"),
+                    "error": message
+                }
+            }
+        
+        print(f"   ✅ Image downloaded successfully")
+        
+        # Run detection
+        print(f"🔍 Running solar panel detection...")
+        detection_result = detect_solar_panels(image_path, models, radius_1_pixels, radius_2_pixels)
+        
+        has_solar = detection_result["has_solar"]
+        confidence = detection_result["confidence"]
+        pv_area_sqm = detection_result["pv_area_sqm_est"]
+        capacity_kw = detection_result.get("capacity_kw", 0.0)
+        buffer_radius = detection_result["buffer_radius_sqft"]
+        bbox_or_mask = detection_result["bbox_or_mask"]
+        ensemble_metadata = detection_result.get("ensemble_metadata", {})
+        detection_source = "ArcGIS World Imagery"
+        primary_image_path = image_path
+        successful_sources = ["ArcGIS"]
+        final_detection = detection_result
+        
+        print(f"   {'✅' if has_solar else '❌'} Solar Panels Detected: {has_solar}")
+        if has_solar:
+            print(f"   📊 Confidence: {confidence:.2f}")
+            print(f"   📏 Panel Area: {pv_area_sqm:.2f} sqm")
+            print(f"   ⚡ Estimated Capacity: {capacity_kw:.2f} kW")
+            print(f"   🎯 Buffer Zone: {buffer_radius} sq.ft")
     
     # Determine QC status
-    qc_status = determine_qc_status(has_solar, confidence, image_path)
+    qc_status = determine_qc_status(has_solar, confidence, primary_image_path)
     print(f"   🔍 QC Status: {qc_status}")
     
     # Create audit overlay
@@ -636,10 +785,10 @@ def process_single_site(sample_id, lat, lon, models, radius_1_pixels, radius_2_p
     artifact_path = os.path.join(ARTIFACTS_DIR, artifact_filename)
     
     overlay_success = create_audit_overlay(
-        image_path,
-        detection_result["result"],
-        detection_result["buffer_center_x"],
-        detection_result["buffer_center_y"],
+        primary_image_path,
+        final_detection["result"],
+        final_detection["buffer_center_x"],
+        final_detection["buffer_center_y"],
         radius_1_pixels,
         radius_2_pixels,
         has_solar,
@@ -661,13 +810,17 @@ def process_single_site(sample_id, lat, lon, models, radius_1_pixels, radius_2_p
         "has_solar": bool(has_solar),
         "confidence": float(confidence),
         "pv_area_sqm_est": float(pv_area_sqm),
+        "capacity_kw": float(capacity_kw),
         "buffer_radius_sqft": int(buffer_radius),
         "qc_status": qc_status,
         "bbox_or_mask": str(bbox_or_mask) if bbox_or_mask else "",
         "image_metadata": {
-            "source": "ArcGIS World Imagery",
+            "sources": successful_sources if USE_DUAL_SOURCE else [detection_source],
+            "best_source": detection_source,
+            "dual_source_mode": USE_DUAL_SOURCE,
+            "dual_source_strategy": DUAL_SOURCE_STRATEGY if USE_DUAL_SOURCE else None,
             "capture_date": datetime.now().strftime("%Y-%m-%d"),
-            "coverage_km": KM_RADIUS * 2,
+            "coverage_km": KM_RADIUS * 2 if not USE_DUAL_SOURCE else None,
             "gsd_cm_per_pixel": GSD_CM_PER_PIXEL
         },
         "ensemble_metadata": ensemble_metadata
@@ -683,6 +836,7 @@ def process_single_site(sample_id, lat, lon, models, radius_1_pixels, radius_2_p
     print(f"   ✅ JSON output saved: {json_filename}")
     
     return json_record
+
 
 
 # =========================

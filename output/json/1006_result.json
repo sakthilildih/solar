@@ -3,15 +3,22 @@
   "lat": 39.5381,
   "lon": -119.44,
   "has_solar": true,
-  "confidence": 0.44436129927635193,
-  "pv_area_sqm_est": 44.75116729736328,
-  "buffer_radius_sqft": 2400,
+  "confidence": 0.6085291504859924,
+  "pv_area_sqm_est": 152.97962951660156,
+  "capacity_kw": 26.771434783935547,
+  "buffer_radius_sqft": 1200,
   "qc_status": "VERIFIABLE",
-  "bbox_or_mask": "[336.0813903808594, 242.40476989746094, 39.35398483276367, 96.0633773803711, 1.5655745267868042]",
+  "bbox_or_mask": "[379.22808837890625, 283.9427490234375, 197.89041137695312, 65.30570220947266, 0.0016281604766845703]",
   "image_metadata": {
-    "source": "ArcGIS World Imagery",
-    "capture_date": "2025-12-15",
-    "coverage_km": 0.08,
+    "sources": [
+      "ArcGIS",
+      "Mapbox"
+    ],
+    "best_source": "Mapbox Satellite",
+    "dual_source_mode": true,
+    "dual_source_strategy": "OR",
+    "capture_date": "2025-12-16",
+    "coverage_km": null,
     "gsd_cm_per_pixel": 10.88
   },
   "ensemble_metadata": {
@@ -23,6 +30,6 @@
     "contributing_models": [
       "best.pt"
     ],
-    "prediction_time_s": 0.13664650917053223
+    "prediction_time_s": 2.1837832927703857
   }
 }

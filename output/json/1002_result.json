@@ -5,13 +5,20 @@
   "has_solar": false,
   "confidence": 0.0,
   "pv_area_sqm_est": 0.0,
+  "capacity_kw": 0.0,
   "buffer_radius_sqft": 2400,
   "qc_status": "VERIFIABLE",
   "bbox_or_mask": "",
   "image_metadata": {
-    "source": "ArcGIS World Imagery",
-    "capture_date": "2025-12-15",
-    "coverage_km": 0.08,
+    "sources": [
+      "ArcGIS",
+      "Mapbox"
+    ],
+    "best_source": "ArcGIS World Imagery",
+    "dual_source_mode": true,
+    "dual_source_strategy": "OR",
+    "capture_date": "2025-12-16",
+    "coverage_km": null,
     "gsd_cm_per_pixel": 10.88
   },
   "ensemble_metadata": {
@@ -21,6 +28,6 @@
     ],
     "strategy": "max_confidence",
     "contributing_models": [],
-    "prediction_time_s": 0.06894707679748535
+    "prediction_time_s": 5.0204386711120605
   }
 }

@@ -2,16 +2,23 @@
   "sample_id": 1005,
   "lat": 27.5396,
   "lon": 71.9153,
-  "has_solar": false,
-  "confidence": 0.0,
-  "pv_area_sqm_est": 0.0,
+  "has_solar": true,
+  "confidence": 0.747230052947998,
+  "pv_area_sqm_est": 35.459632873535156,
+  "capacity_kw": 6.205435752868652,
   "buffer_radius_sqft": 2400,
   "qc_status": "VERIFIABLE",
-  "bbox_or_mask": "",
+  "bbox_or_mask": "[104.29248046875, 239.505859375, 157.4622039794922, 19.02392578125, 0.0013709068298339844]",
   "image_metadata": {
-    "source": "ArcGIS World Imagery",
-    "capture_date": "2025-12-15",
-    "coverage_km": 0.08,
+    "sources": [
+      "ArcGIS",
+      "Mapbox"
+    ],
+    "best_source": "Mapbox Satellite",
+    "dual_source_mode": true,
+    "dual_source_strategy": "OR",
+    "capture_date": "2025-12-16",
+    "coverage_km": null,
     "gsd_cm_per_pixel": 10.88
   },
   "ensemble_metadata": {
@@ -21,8 +28,8 @@
     ],
     "strategy": "max_confidence",
     "contributing_models": [
-      "best.pt"
+      "best (2).pt"
     ],
-    "prediction_time_s": 0.10888838768005371
+    "prediction_time_s": 1.3461582660675049
   }
 }
