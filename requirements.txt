@@ -1,0 +1,24 @@
+# Python Dependencies for Solar Panel Detection Pipeline
+
+# Core ML/CV libraries
+ultralytics>=8.0.0
+opencv-python-headless>=4.8.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Geospatial and geometry
+shapely>=2.0.0
+
+# Data processing
+pandas>=2.0.0
+numpy>=1.24.0,<2.0.0
+openpyxl>=3.1.0
+
+# Image processing
+Pillow>=10.0.0
+
+# HTTP requests
+requests>=2.31.0
+
+# Utilities
+python-dateutil>=2.8.0

@@ -1,0 +1,54 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Output directories
+output/
+*.png
+*.jpg
+*.jpeg
+
+# Test files
+test_*.py
+test_*.png
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation (except README)
+*.md
+!README.md
+!README_DOCKER.md
+
+# Temporary files
+*.tmp
+*.log
+
+# Model checkpoints (keep only the ones we need)
+last.pt
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Data files
+*.xlsx
+!input/*.xlsx
+
+# Misc
+.DS_Store
+Thumbs.db

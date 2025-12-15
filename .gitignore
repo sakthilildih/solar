@@ -1,0 +1,44 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyc
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.log
+
+# Test files (keep only if needed)
+test_*.png
+chennai_satellite.png
+chn*.png
+nyc_satellite.png
+
+# Model checkpoints (keep only the ones we use)
+last.pt
+
+# Output files (optional - uncomment if you don't want to push outputs)
+# output/
+
+# Docker build context (already in .dockerignore)

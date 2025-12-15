@@ -1,0 +1,28 @@
+{
+  "sample_id": 2005,
+  "lat": 9.3476,
+  "lon": 78.3922,
+  "has_solar": true,
+  "confidence": 0.8523027300834656,
+  "pv_area_sqm_est": 38.402557373046875,
+  "buffer_radius_sqft": 1200,
+  "qc_status": "VERIFIABLE",
+  "bbox_or_mask": "[232.04031372070312, 247.90916442871094, 15.555902481079102, 208.5485382080078, 1.5684789419174194]",
+  "image_metadata": {
+    "source": "ArcGIS World Imagery",
+    "capture_date": "2025-12-15",
+    "coverage_km": 0.08,
+    "gsd_cm_per_pixel": 10.88
+  },
+  "ensemble_metadata": {
+    "models_used": [
+      "best.pt",
+      "best (2).pt"
+    ],
+    "strategy": "max_confidence",
+    "contributing_models": [
+      "best.pt"
+    ],
+    "prediction_time_s": 0.10185551643371582
+  }
+}

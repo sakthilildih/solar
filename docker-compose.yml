@@ -1,0 +1,30 @@
+services:
+  solar-detection:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: solar-detection:latest
+    container_name: solar-panel-detector
+
+    volumes:
+      # Mount input directory (read-only)
+      - ./input:/app/input:ro
+      # Mount output directory (read-write)
+      - ./output:/app/output
+
+    environment:
+      - PYTHONUNBUFFERED=1
+      - OPENCV_VIDEOIO_DEBUG=0
+
+    # Restart policy
+    restart: "no"
+
+    # Resource limits (optional - adjust based on your needs)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '2'
+          memory: 4G
